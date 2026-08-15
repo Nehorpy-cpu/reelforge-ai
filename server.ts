@@ -1,4 +1,4 @@
-import dotenv from 'dotenv';
+import './src/server/env.js';
 import express from 'express';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
@@ -18,10 +18,6 @@ import { registerBillingRoutes } from './src/server/billing.js';
 import { requireAiQuota } from './src/server/ai-quota.js';
 import { AI_MODELS } from './src/ai-models.js';
 import { runCampaignAgents, type AgentId } from './src/server/agent-runtime.js';
-
-// Load local env files (.env.local takes precedence over .env).
-// In AI Studio these vars are injected at runtime, so this is a no-op there.
-dotenv.config({ path: ['.env.local', '.env'] });
 
 let aiClient: GoogleGenAI | null = null;
 

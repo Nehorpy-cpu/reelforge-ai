@@ -26,8 +26,8 @@ const list = (value: unknown, field: string, min = 1, max = 8) => {
 function validate(agent: AgentId, value: any, duration: number) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('La salida debe ser un objeto JSON.');
   if (agent === 'ceo') return {
-    title: text(value.title, 'title', 200), objective: text(value.objective, 'objective', 500), audience: text(value.audience, 'audience', 500),
-    offer: text(value.offer, 'offer', 500), angle: text(value.angle, 'angle', 500), kpi: text(value.kpi, 'kpi', 300)
+    title: text(value.title, 'title', 200), objective: text(value.objective, 'objective', 500), audience: text(Array.isArray(value.audience) ? value.audience.join(', ') : value.audience, 'audience', 500),
+    offer: text(value.offer || 'No verified promotional offer', 'offer', 500), angle: text(value.angle, 'angle', 500), kpi: text(value.kpi, 'kpi', 300)
   };
   if (agent === 'creative') {
     const scenes = list(value.scenes, 'scenes', 1, 6).map((scene: any, index) => {
@@ -46,17 +46,25 @@ function validate(agent: AgentId, value: any, duration: number) {
     }))
   };
   if (agent === 'copy') return {
-    subtitles: list(value.subtitles, 'subtitles', 1, 12).map((cue: any, index) => {
+    subtitles: list(value.subtitles ?? value.subtitleCues ?? value.subtitle_cues, 'subtitles', 1, 12).map((cue: any, index) => {
       const start = Number(cue.start), end = Number(cue.end);
       if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start || end > duration) throw new Error(`Subtítulo inválido ${index + 1}`);
       return { start, end, text: text(cue.text, `subtitles.${index}.text`, 300) };
     }),
-    onScreenText: text(value.onScreenText, 'onScreenText', 300), caption: text(value.caption, 'caption', 2200),
+    onScreenText: text(String(value.onScreenText ?? value.on_screen_text ?? value.screenText ?? value.caption ?? '').slice(0, 300), 'onScreenText', 300), caption: text(value.caption, 'caption', 2200),
     hashtags: list(value.hashtags, 'hashtags', 1, 30).map((tag, index) => text(tag, `hashtags.${index}`, 100))
   };
   const severity = String(value.severity || 'critical');
   if (!['ok', 'info', 'warning', 'critical'].includes(severity)) throw new Error('Severidad inválida.');
-  return { severity, findings: Array.isArray(value.findings) ? value.findings.slice(0, 30) : [], requiredChanges: Array.isArray(value.requiredChanges) ? value.requiredChanges.slice(0, 30) : [], publishable: value.publishable === true };
+  return { severity, findings: Array.isArray(value.findings) ? value.findings.slice(0, 30) : [], requiredChanges: Array.isArray(value.requiredChanges ?? value.required_changes) ? (value.requiredChanges ?? value.required_changes).slice(0, 30) : [], publishable: value.publishable === true };
+}
+
+function contract(agent: AgentId, duration: number) {
+  if (agent === 'ceo') return 'Required JSON keys: title, objective, audience, offer, angle, kpi. Every value must be a non-empty string. If there is no verified promotion, set offer to "No verified promotional offer".';
+  if (agent === 'creative') return `Required JSON keys: hook, voiceover, cta, scenes. scenes must contain 1-6 objects with numeric start/end between 0 and ${duration}, plus non-empty visual and copy; scenes must not overlap.`;
+  if (agent === 'visual') return 'Required JSON keys: continuity, scenes. Every scene must repeat start, end, visual and copy and add non-empty camera, lighting and prompt.';
+  if (agent === 'copy') return `Required JSON keys: subtitles, onScreenText, caption, hashtags. Every subtitle needs numeric start/end between 0 and ${duration} and non-empty text.`;
+  return 'Required JSON keys: severity, findings, requiredChanges, publishable. severity must be ok, info, warning or critical; findings and requiredChanges must be arrays; publishable must be boolean.';
 }
 
 async function step(agent: AgentId, instruction: string, input: unknown, duration: number, iteration: number, ask: AskAgent, event: (event: AgentEvent) => void) {
@@ -64,7 +72,7 @@ async function step(agent: AgentId, instruction: string, input: unknown, duratio
   for (let attempt = 1; attempt <= 2; attempt++) {
     event({ agent, phase: attempt === 1 ? 'started' : 'retry', iteration, input: attempt === 1 ? input : undefined, error: lastError || undefined });
     try {
-      const output = validate(agent, await ask(agent, `${instruction}${lastError ? `\nPrevious output failed validation: ${lastError}. Correct it.` : ''}`, input), duration);
+      const output = validate(agent, await ask(agent, `${instruction}\n${contract(agent, duration)}${lastError ? `\nPrevious output failed validation: ${lastError}. Correct it.` : ''}`, input), duration);
       event({ agent, phase: 'completed', iteration, output });
       return output;
     } catch (error: any) { lastError = String(error.message || error); }

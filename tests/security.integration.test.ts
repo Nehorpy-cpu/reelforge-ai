@@ -23,7 +23,7 @@ async function waitForServer() {
 test.before(async () => {
   server = spawn(process.execPath, ['--import', 'tsx', 'server.ts'], {
     cwd: process.cwd(), stdio: 'ignore',
-    env: { ...process.env, PORT: String(port), DATA_DIR: dataDir, NODE_ENV: 'production', COOKIE_SECURE: 'false' }
+    env: { ...process.env, GEMINI_API_KEY: '', DISABLE_LOCAL_GEMINI_ENV: 'true', PORT: String(port), DATA_DIR: dataDir, NODE_ENV: 'production', COOKIE_SECURE: 'false' }
   });
   await waitForServer();
 });

@@ -2,9 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import dotenv from 'dotenv';
-
-dotenv.config({ path: ['.env.local', '.env'] });
+import './env.js';
 
 const dataDir = path.resolve(process.env.DATA_DIR || 'data');
 fs.mkdirSync(dataDir, { recursive: true });
