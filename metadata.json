@@ -1,0 +1,8 @@
+{
+  "name": "Perfume Rebel",
+  "description": "Studio cinematográfico y reel creator para el perfume 9PM Rebel de Afnan con pirámide olfativa, locución masculina neutra latina (cero acento español) y tienda arfagi.com.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
