@@ -17,6 +17,7 @@ body {
   background-attachment: fixed;
   min-height: 100vh;
 }
+button, input, textarea, select { font-family: inherit; }
 
 /* Elegant scrollbars */
 .hide-scrollbar {

@@ -12,6 +12,7 @@ import { BrandDnaModal } from './components/BrandDnaModal.js';
 import { BrandDna, PlanId } from './saas.js';
 import { AuthScreen } from './components/AuthScreen.js';
 import { WorkspacePanel } from './components/WorkspacePanel.js';
+import { AgentConstellation } from './components/AgentConstellation.js';
 
 type LogType = 'info' | 'success' | 'warn' | 'error';
 type AppState = 'IDLE' | 'GENERATING_ATMOSPHERE' | 'GENERATING_PROMPT' | 'GENERATING_VIDEO' | 'VIDEO_READY';
@@ -26,6 +27,7 @@ interface VideoVersion {
 export default function App() {
   const [me, setMe] = useState<any>(undefined);
   const [isWorkspaceOpen, setIsWorkspaceOpen] = useState(false);
+  const [mainView, setMainView] = useState<'constellation'|'studio'>('constellation');
   const [product, setProduct] = useState<MediaSelection | null>(null);
   const [atmosphere, setAtmosphere] = useState<MediaSelection | null>(null);
   const [appState, setAppState] = useState<AppState>('IDLE');
@@ -402,6 +404,12 @@ export default function App() {
 
   if (me === undefined) return <div className="min-h-screen bg-zinc-950 flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-amber-400" /></div>;
   if (me === null) return <AuthScreen onAuthenticated={loadMe} />;
+  if (mainView === 'constellation') return <>
+    <AgentConstellation me={me} onOpenStudio={()=>setMainView('studio')} onOpenWorkspace={()=>setIsWorkspaceOpen(true)} onOpenVoices={()=>setIsVoiceStudioOpen(true)} onOpenBrand={()=>setIsBrandDnaOpen(true)} />
+    <VoiceStudioModal isOpen={isVoiceStudioOpen} onClose={()=>setIsVoiceStudioOpen(false)} selectedVoiceId={selectedVoice.id} onSelectVoice={setSelectedVoice} isVoiceoverEnabled={isVoiceoverEnabled} onToggleVoiceover={setIsVoiceoverEnabled}/>
+    <BrandDnaModal isOpen={isBrandDnaOpen} onClose={()=>setIsBrandDnaOpen(false)} value={brandDna} onSave={(dna)=>{setBrandDna(dna);localStorage.setItem('reel-brand-dna',JSON.stringify(dna));}} planId={planId} onPlanChange={setPlanId} usedVideos={usedVideos}/>
+    <WorkspacePanel isOpen={isWorkspaceOpen} onClose={()=>setIsWorkspaceOpen(false)} onOpenStudio={()=>{setIsWorkspaceOpen(false);setMainView('studio')}} />
+  </>;
 
   return (
     <div className="min-h-screen w-full flex flex-col bg-zinc-950 font-sans text-zinc-100 selection:bg-amber-400 selection:text-zinc-950">
@@ -409,6 +417,7 @@ export default function App() {
       {/* TOP BAR */}
       <header className="border-b border-zinc-800/80 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-30 px-6 md:px-10 py-3.5 flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
+          <button onClick={()=>setMainView('constellation')} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white">Constelación</button>
           <button
             onClick={() => setIsBrandDnaOpen(true)}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold border transition-all ${brandDna ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' : 'bg-zinc-900 text-amber-300 border-amber-400/30'}`}
