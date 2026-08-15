@@ -119,6 +119,17 @@ export function migrate() {
       status TEXT NOT NULL CHECK(status IN ('reserved','completed','failed')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
       UNIQUE(organization_id, request_key)
     );
+    CREATE TABLE IF NOT EXISTS agent_runs (
+      id TEXT PRIMARY KEY, organization_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      campaign_id TEXT REFERENCES campaigns(id) ON DELETE SET NULL, status TEXT NOT NULL,
+      mode TEXT NOT NULL, dna_version INTEGER, revision_count INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT NOT NULL, completed_at TEXT, error TEXT
+    );
+    CREATE TABLE IF NOT EXISTS agent_run_events (
+      id TEXT PRIMARY KEY, run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+      agent_id TEXT NOT NULL, phase TEXT NOT NULL, iteration INTEGER NOT NULL,
+      input_json TEXT, output_json TEXT, error TEXT, created_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_products_org ON products(organization_id);
     CREATE INDEX IF NOT EXISTS idx_campaigns_org ON campaigns(organization_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_jobs_status ON render_jobs(status, created_at);
@@ -126,6 +137,8 @@ export function migrate() {
     CREATE INDEX IF NOT EXISTS idx_provider_assets_org_file ON provider_assets(organization_id, provider_file_id);
     CREATE INDEX IF NOT EXISTS idx_provider_assets_org_interaction ON provider_assets(organization_id, provider_interaction_id);
     CREATE INDEX IF NOT EXISTS idx_ai_operations_period ON ai_operation_ledger(organization_id, period_key, operation, status);
+    CREATE INDEX IF NOT EXISTS idx_agent_runs_org ON agent_runs(organization_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_agent_events_run ON agent_run_events(run_id, created_at);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_job_kind ON usage_ledger(render_job_id, kind)
       WHERE render_job_id IS NOT NULL AND kind IN ('reservation','consumption','release');
   `);

@@ -22,7 +22,12 @@ export function requireAiQuota(operation: AiOperation) {
         const existing = db.prepare('SELECT status FROM ai_operation_ledger WHERE organization_id=? AND request_key=?').get(req.auth!.organizationId, requestKey) as any;
         if (existing) throw new Error('DUPLICATE_AI_REQUEST');
         const timestamp = now();
-        db.prepare('INSERT INTO ai_operation_ledger VALUES(?,?,?,?,?,?,?,?)').run(id(), req.auth!.organizationId, periodKey, operation, requestKey, 'completed', timestamp, timestamp);
+        const ledgerId = id();
+        db.prepare('INSERT INTO ai_operation_ledger VALUES(?,?,?,?,?,?,?,?)').run(ledgerId, req.auth!.organizationId, periodKey, operation, requestKey, 'reserved', timestamp, timestamp);
+        res.once('finish', () => {
+          const status = res.statusCode >= 200 && res.statusCode < 400 ? 'completed' : 'failed';
+          db.prepare("UPDATE ai_operation_ledger SET status=?,updated_at=? WHERE id=? AND status='reserved'").run(status, now(), ledgerId);
+        });
       });
       next();
     } catch (error: any) {
