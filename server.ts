@@ -1,4 +1,4 @@
-import dotenv from 'dotenv';
+import './src/server/env.js';
 import express from 'express';
 import helmet from 'helmet';
 import { rateLimit } from 'express-rate-limit';
@@ -8,7 +8,7 @@ import { Readable } from 'node:stream';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import { estimateReelCost, SUBSCRIPTION_PLANS } from './src/saas.js';
-import { findInventedOffers, REEL_AGENTS } from './src/agents.js';
+import { REEL_AGENTS } from './src/agents.js';
 import { migrate } from './src/server/db.js';
 import { AuthRequest, registerAuthRoutes, registerMeRoute, requireAuth, requireRole } from './src/server/auth.js';
 import { registerWorkspaceRoutes } from './src/server/workspace.js';
@@ -17,10 +17,7 @@ import { consumeReservation, currentEntitlement, releaseReservation, reserveVide
 import { registerBillingRoutes } from './src/server/billing.js';
 import { requireAiQuota } from './src/server/ai-quota.js';
 import { AI_MODELS } from './src/ai-models.js';
-
-// Load local env files (.env.local takes precedence over .env).
-// In AI Studio these vars are injected at runtime, so this is a no-op there.
-dotenv.config({ path: ['.env.local', '.env'] });
+import { runCampaignAgents, type AgentId } from './src/server/agent-runtime.js';
 
 let aiClient: GoogleGenAI | null = null;
 
@@ -200,13 +197,18 @@ async function startServer() {
   app.get('/api/agents', (_req, res) => res.json({ agents: REEL_AGENTS }));
 
   app.post('/api/campaign/prepare', requireAuth, requireRole('owner','admin','editor'), requireAiQuota('analysis'), async (req: AuthRequest, res) => {
+    const runId = id();
     try {
-      const { brief, brandDna = {}, platform = 'instagram', durationSeconds = 15 } = req.body;
+      const { brief, brandDna: suppliedBrandDna, platform = 'instagram', durationSeconds = 15 } = req.body;
       if (!brief || String(brief).trim().length < 10) return res.status(400).json({ error: 'A campaign brief of at least 10 characters is required' });
       const requestedDuration = Number(durationSeconds);
       const entitlement = currentEntitlement(req.auth!.organizationId);
       if (!Number.isFinite(requestedDuration) || requestedDuration < 5 || requestedDuration > entitlement.plan.maxVideoSeconds) return res.status(400).json({ error: `El plan ${entitlement.plan.name} permite videos de 5 a ${entitlement.plan.maxVideoSeconds} segundos.` });
+      const approvedDna = db.prepare("SELECT version,data_json FROM brand_dna WHERE organization_id=? AND status='approved' ORDER BY version DESC LIMIT 1").get(req.auth!.organizationId) as any;
+      const brandDna = suppliedBrandDna && Object.keys(suppliedBrandDna).length ? suppliedBrandDna : approvedDna ? JSON.parse(approvedDna.data_json) : {};
+      const products = db.prepare('SELECT name,category,description,benefits_json,price,url FROM products WHERE organization_id=? AND active=1 ORDER BY created_at DESC LIMIT 100').all(req.auth!.organizationId).map((row: any) => ({ ...row, benefits: JSON.parse(row.benefits_json || '[]'), benefits_json: undefined }));
       const ai = process.env.GEMINI_API_KEY ? getAiClient() : null;
+      db.prepare('INSERT INTO agent_runs VALUES(?,?,?,?,?,?,?,?,?,?)').run(runId, req.auth!.organizationId, null, 'running', ai ? 'gemini' : 'local-simulation', approvedDna?.version ?? null, 0, now(), null, null);
 
       const askJson = async (role: string, input: unknown) => {
         if (!process.env.GEMINI_API_KEY) {
@@ -225,19 +227,11 @@ async function startServer() {
         return JSON.parse((response.text || '{}').replace(/```(json)?/gi, '').trim());
       };
 
-      const strategy = await askJson('You are the campaign CEO. Define title, objective, audience, evidence-based offer, angle and KPI.', { brief, brandDna, platform });
-      const creative = await askJson(`You are the creative director. Create a ${durationSeconds}-second vertical reel with hook, voiceover, CTA and 3-6 timed scenes.`, { brief, brandDna, platform, strategy });
-      const visual = await askJson('You are the visual director. For every scene specify product fidelity, atmosphere, camera, light, motion and an English generation prompt. Keep coherent visual continuity.', { brandDna, strategy, creative });
-      const copy = await askJson('You are the social copy and subtitle editor. Produce subtitle cues, on-screen text, platform caption and hashtags. Keep subtitles readable and do not add unsupported claims.', { platform, durationSeconds, brandDna, strategy, creative });
-
-      const combined = JSON.stringify({ strategy, creative, visual, copy });
-      const inventedOffers = findInventedOffers(`${brief}\n${JSON.stringify(brandDna)}`, combined);
-      const audit = await askJson('You are the Meta advertising policy and brand regulator. Return severity (ok, info, warning, critical), findings, requiredChanges and publishable. Check misleading claims, personal attributes, discriminatory targeting, prohibited health claims and brand-DNA violations.', { brief, brandDna, platform, strategy, creative, visual, copy, deterministicFlags: { inventedOffers } });
-      if (inventedOffers.length) {
-        audit.severity = audit.severity === 'critical' ? 'critical' : 'warning';
-        audit.publishable = false;
-        audit.requiredChanges = [...(Array.isArray(audit.requiredChanges) ? audit.requiredChanges : []), `Remove or verify unsupported offers: ${inventedOffers.join(', ')}`];
-      }
+      const result = await runCampaignAgents({ brief: String(brief), brandDna, products, platform, duration: requestedDuration, maxRevisions: 2,
+        ask: (agent: AgentId, instruction, input) => askJson(`You are the ${agent === 'ceo' ? 'campaign CEO' : agent === 'creative' ? 'creative director' : agent === 'visual' ? 'visual director' : agent === 'copy' ? 'social copy and subtitle editor' : 'Meta advertising policy and brand regulator'}. ${instruction}`, input),
+        event: event => db.prepare('INSERT INTO agent_run_events VALUES(?,?,?,?,?,?,?,?,?)').run(id(), runId, event.agent, event.phase, event.iteration, event.input ? json(event.input) : null, event.output ? json(event.output) : null, event.error || null, now())
+      });
+      const { strategy, creative, visual, copy, audit, revisions } = result;
 
       const status = audit.publishable === true ? 'approved' : 'review_required';
       const campaignId = id();
@@ -247,9 +241,11 @@ async function startServer() {
         requestedDuration, status, json(strategy), json(creative),
         json(visual), json(copy), json(audit), req.body.voiceProfileId || null, req.auth!.userId, timestamp, timestamp
       );
-      res.status(201).json({ id: campaignId, status, agents: REEL_AGENTS, strategy, creative, visual, copy, audit });
+      db.prepare("UPDATE agent_runs SET campaign_id=?,status='completed',revision_count=?,completed_at=? WHERE id=?").run(campaignId, revisions, now(), runId);
+      res.status(201).json({ id: campaignId, runId, mode: ai ? 'gemini' : 'local-simulation', dnaVersion: approvedDna?.version ?? null, status, agents: REEL_AGENTS, strategy, creative, visual, copy, audit, revisions });
     } catch (error: any) {
       console.error('Error preparing agent campaign:', error);
+      db.prepare("UPDATE agent_runs SET status='failed',error=?,completed_at=? WHERE id=?").run(String(error.message || error).slice(0, 2000), now(), runId);
       res.status(500).json({ error: 'No se pudo preparar la campaña.' });
     }
   });
@@ -332,6 +328,8 @@ async function startServer() {
     try {
       db.prepare('INSERT INTO render_jobs VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(jobId, req.auth!.organizationId, campaign.id, String(req.body.idempotencyKey || id()), 'queued', provider, model, 0, null, null, estimate.total, null, now(), null, null);
       reserveVideo(req.auth!.organizationId, jobId);
+      const run = db.prepare('SELECT id FROM agent_runs WHERE campaign_id=? AND organization_id=? ORDER BY started_at DESC LIMIT 1').get(campaign.id, req.auth!.organizationId) as any;
+      if (run) db.prepare('INSERT INTO agent_run_events VALUES(?,?,?,?,?,?,?,?,?)').run(id(), run.id, 'producer', 'completed', 0, json({ provider, model, durationSeconds:campaign.duration_seconds }), json({ jobId, quotaReserved:true, estimatedCostUsd:estimate.total, format:'9:16' }), null, now());
       setImmediate(() => void processRenderJob(jobId));
       res.status(202).json({ id: jobId, status: 'queued', estimatedCostUsd: estimate.total });
     } catch (error: any) {

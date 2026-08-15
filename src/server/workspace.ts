@@ -21,7 +21,8 @@ export function registerWorkspaceRoutes(app: Express) {
       renders: (db.prepare("SELECT COUNT(*) n FROM render_jobs WHERE organization_id=? AND status='completed'").get(org) as any).n,
     };
     const costs = (db.prepare('SELECT COALESCE(SUM(cost_usd),0) total FROM provider_cost_events WHERE organization_id=?').get(org) as any).total;
-    res.json({ plan, subscription, usage: { consumed: usage.consumed, reserved: usage.reserved, limit: plan.monthlyVideos }, counts, providerCostUsd: costs });
+    const approvedDna = db.prepare("SELECT id,version,approved_at FROM brand_dna WHERE organization_id=? AND status='approved' ORDER BY version DESC LIMIT 1").get(org) || null;
+    res.json({ plan, subscription, usage: { consumed: usage.consumed, reserved: usage.reserved, limit: plan.monthlyVideos }, counts, providerCostUsd: costs, approvedDna });
   });
 
   app.get('/api/workspace/brand-dna', (req: AuthRequest, res) => {
@@ -106,6 +107,14 @@ export function registerWorkspaceRoutes(app: Express) {
   app.get('/api/workspace/campaigns/:id', (req: AuthRequest, res) => {
     const row = db.prepare('SELECT * FROM campaigns WHERE id=? AND organization_id=?').get(req.params.id, req.auth!.organizationId);
     if (!row) return res.status(404).json({ error: 'Campaña no encontrada.' }); res.json(mapCampaign(row));
+  });
+  app.get('/api/workspace/campaigns/:id/agent-run', (req: AuthRequest, res) => {
+    const campaign = db.prepare('SELECT id FROM campaigns WHERE id=? AND organization_id=?').get(req.params.id, req.auth!.organizationId);
+    if (!campaign) return res.status(404).json({ error: 'Campaña no encontrada.' });
+    const run = db.prepare('SELECT * FROM agent_runs WHERE campaign_id=? AND organization_id=? ORDER BY started_at DESC LIMIT 1').get(req.params.id, req.auth!.organizationId) as any;
+    if (!run) return res.status(404).json({ error: 'Ejecución no encontrada.' });
+    const events = db.prepare('SELECT agent_id,phase,iteration,input_json,output_json,error,created_at FROM agent_run_events WHERE run_id=? ORDER BY created_at,id').all(run.id) as any[];
+    res.json({ ...run, events: events.map(item => ({ ...item, input: parseJson(item.input_json, null), output: parseJson(item.output_json, null), input_json: undefined, output_json: undefined })) });
   });
 
   app.get('/api/workspace/renders', (req: AuthRequest, res) => {

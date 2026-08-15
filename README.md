@@ -9,6 +9,9 @@ SaaS multiempresa para construir reels publicitarios con DNA de marca, catálogo
 - Brand DNA versionado y aprobable.
 - Catálogo de productos y fuentes sociales/manuales.
 - Swarm CEO → Creative → Visual → Copy → Guard → Producer.
+- DNA aprobado y catálogo inyectados automáticamente en cada ejecución.
+- Contratos JSON validados, reintentos acotados y hasta dos rondas Guard → corrección → nueva auditoría.
+- Trazabilidad persistente por agente, versión de DNA, modo de ejecución y decisiones del productor.
 - Detección determinística de precios y descuentos inventados.
 - Cuatro voces comerciales de referencia para el modelo de audio Gemini de AI Studio.
 - Planes, reservas de crédito, consumo/release y costos por proveedor.
@@ -29,6 +32,8 @@ npm run dev
 ```
 
 Abrir `http://localhost:3000`, crear una cuenta y empresa. Sin claves externas funciona el modo local completo: genera campaña determinística auditada y artefactos de prueba. Con `GEMINI_API_KEY` activa análisis/generación real.
+
+El modo sin clave se identifica explícitamente como `local-simulation`; no debe interpretarse como una evaluación del proveedor. El regulador combina el modelo con un paquete determinístico versionado basado en Meta Advertising Standards. La aprobación interna reduce riesgos, pero Meta realiza su propia revisión antes de publicar anuncios.
 
 Para iniciar automáticamente los proyectos Node encontrados en un workspace, asignando puertos consecutivos y guardando logs separados:
 

@@ -8,3 +8,5 @@ coverage/
 data*/
 .env*
 !.env.example
+APIGemini.env
+apigemini.env
